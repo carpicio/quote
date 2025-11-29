@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Value Bet Smart", layout="wide")
+# --- CONFIGURAZIONE (CORRETTA) ---
+# Qui ho aggiunto page_icon="⚽" per evitare l'errore che vedevi
+st.set_page_config(page_title="Value Bet Smart", page_icon="⚽", layout="wide")
 st.title("⚽ Calcolatore Strategico (Compatibile Universale)")
 
 # --- FUNZIONI DI CALCOLO ---
@@ -25,7 +26,6 @@ def remove_margin(odd_1, odd_x, odd_2):
         return 0, 0, 0
 
 def calculate_row(row, hfa=100):
-    # I nomi qui sono quelli "Standardizzati" dopo la pulizia
     res = {'EV_1': -1, 'EV_X': -1, 'EV_2': -1, 'Fair_1': 0, 'Fair_X': 0, 'Fair_2': 0, 'ELO_Diff': 0}
     
     try:
@@ -59,7 +59,7 @@ def calculate_row(row, hfa=100):
 @st.cache_data(ttl=0)
 def load_data(file):
     try:
-        # 1. Lettura File (Prova separatore ; poi ,)
+        # 1. Lettura File
         try:
             df = pd.read_csv(file, sep=';', encoding='latin1')
             if len(df.columns) < 5: raise ValueError
@@ -67,46 +67,36 @@ def load_data(file):
             file.seek(0)
             df = pd.read_csv(file, sep=',', encoding='latin1')
 
-        # 2. Pulizia Nomi Colonne (tutto minuscolo, niente spazi)
+        # 2. Pulizia Nomi Colonne
         df.columns = df.columns.str.strip().str.lower()
         
-        # 3. MAPPA DEI NOMI (Il Segreto della Compatibilità)
-        # Dizionario: { "nome_nuovo": "nome_standard", "nome_vecchio": "nome_standard" }
+        # 3. MAPPA DEI NOMI
         rename_map = {
-            # Nuovo Formato (File XLS.csv)
             '1': 'cotaa', 'x': 'cotae', '2': 'cotad',
             'eloc': 'elohomeo', 'eloo': 'eloawayo',
             'gfinc': 'scor1', 'gfino': 'scor2',
             'o2,5': 'cotao', 'u2,5': 'cotau',
-            'data': 'datamecic', 'casa': 'txtechipa1', 'ospite': 'txtechipa2',
-            # Vecchio Formato (CGMBet Export classico) -> Già standard, ma per sicurezza
-            'place1': 'place1', 'place2': 'place2' 
+            'data': 'datamecic', 'casa': 'txtechipa1', 'ospite': 'txtechipa2'
         }
-        
-        # Rinomina le colonne che trova
         df = df.rename(columns=rename_map)
         
-        # 4. Controllo Colonne Essenziali (Ora cerchiamo i nomi Standard)
+        # 4. Controllo Colonne Essenziali
         req_cols = ['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo']
         missing = [c for c in req_cols if c not in df.columns]
         
         if missing:
-            return None, f"⚠️ Errore: Non riesco a trovare le colonne delle quote/ELO. \nColonne trovate: {list(df.columns)}"
+            return None, f"⚠️ Errore: Non trovo le colonne necessarie. Colonne lette: {list(df.columns)}"
 
-        # 5. Pulizia Numeri (Virgola -> Punto)
-        # Elenco di tutte le colonne che potrebbero essere numeri
+        # 5. Pulizia Numeri
         cols_to_numeric = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
-        
         for c in cols_to_numeric:
             if c in df.columns:
-                # Converte in stringa, rimpiazza virgola, converte in numero
                 df[c] = df[c].astype(str).str.replace(',', '.', regex=False)
                 df[c] = pd.to_numeric(df[c], errors='coerce')
 
         # 6. Rimozione righe vuote
         df = df.dropna(subset=['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo'])
-        
-        if df.empty: return None, "⚠️ Il file non contiene dati validi dopo la pulizia."
+        if df.empty: return None, "⚠️ Il file non contiene dati validi."
 
         # 7. Calcoli
         calc = df.apply(lambda r: calculate_row(r), axis=1)
@@ -153,7 +143,7 @@ with tab1:
         show(k2, "X", ox, res['EV_X'])
         show(k3, "2", o2, res['EV_2'])
 
-uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (Vecchio o Nuovo Formato)", type=["csv"])
+uploaded_file = st.sidebar.file_uploader("📂 Carica CSV", type=["csv"])
 
 if uploaded_file:
     df, error_msg = load_data(uploaded_file)
@@ -173,7 +163,6 @@ if uploaded_file:
             else:
                 st.info("ℹ️ File caricato! Risultati storici non trovati (o partite future).")
             
-            # Mostra tabella (nascondi colonne tecniche)
             cols_to_show = [c for c in df.columns if c not in ['res_1x2', 'res_o25', 'res_u25', 'goals_ft']]
             st.dataframe(df[cols_to_show].head(10))
 
@@ -234,7 +223,6 @@ if uploaded_file:
                         k2.metric("Profitto", f"{my_profit:.2f} u")
                         k3.metric("ROI", f"{my_roi:.2f}%", delta_color="normal" if my_roi>0 else "inverse")
                         
-                        # Mostra colonne utili
                         cols_base = ['datamecic', 'txtechipa1', 'txtechipa2']
                         cols_view = [c for c in cols_base if c in df_filt.columns] + [col_odd, 'ELO_Diff']
                         st.dataframe(df_filt[cols_view])
