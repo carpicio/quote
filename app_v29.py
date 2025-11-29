@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Value Bet v28", page_icon="⚽", layout="wide")
-st.title("⚽ Calcolatore Strategico (v28 - Con Nomi)")
+st.set_page_config(page_title="Value Bet v29", page_icon="⚽", layout="wide")
+st.title("⚽ Calcolatore Strategico (v29 - Con Quote Implicite)")
 
 # --- FUNZIONI DI CALCOLO ---
 def get_implicit_probs(elo_home, elo_away, hfa=100):
@@ -42,14 +42,17 @@ def calculate_row(row, hfa=100):
         p_fin_1 = rem * p_elo_h
         p_fin_2 = rem * p_elo_a
         
+        # Quote Implicite (Fair Odds)
         res['Fair_1'] = 1/p_fin_1 if p_fin_1>0 else 0
         res['Fair_X'] = 1/pf_x if pf_x>0 else 0
         res['Fair_2'] = 1/p_fin_2 if p_fin_2>0 else 0
+        
+        # EV
         res['EV_1'] = (o1 * p_fin_1) - 1
         res['EV_X'] = (ox * pf_x) - 1
         res['EV_2'] = (o2 * p_fin_2) - 1
         
-    res['ELO_Diff'] = abs((elo_h + hfa) - elo_a)
+    res['ELO_Diff'] = (elo_h + hfa) - elo_a # Differenza netta con HFA
     return pd.Series(res)
 
 # --- CARICAMENTO DATI ---
@@ -65,7 +68,6 @@ def load_data(file):
 
         df.columns = df.columns.str.strip().str.lower()
         
-        # Mappa Nomi Universale
         rename_map = {
             '1': 'cotaa', 'x': 'cotae', '2': 'cotad',
             'eloc': 'elohomeo', 'eloo': 'eloawayo',
@@ -94,6 +96,7 @@ def load_data(file):
             df['goals_ft'] = df['scor1'] + df['scor2']
             conditions = [df['scor1'] > df['scor2'], df['scor1'] == df['scor2'], df['scor1'] < df['scor2']]
             df['res_1x2'] = np.select(conditions, ['1', 'X', '2'], default='-')
+            
             if 'cotao' in df.columns:
                 df['res_o25'] = (df['goals_ft'] > 2.5).astype(int)
                 df['res_u25'] = (df['goals_ft'] < 2.5).astype(int)
@@ -111,33 +114,24 @@ tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report", "🕵️ Analisi"
 with tab1:
     st.header("Calcolatore Manuale")
     
-    # --- RIGA 1: NOMI SQUADRE ---
+    # Input Nomi Squadre
     c_name1, c_vs, c_name2 = st.columns([3, 1, 3])
-    with c_name1:
-        team_h = st.text_input("Squadra Casa", "Home Team")
-    with c_vs:
-        st.markdown("<h3 style='text-align: center; margin-top: 20px;'>VS</h3>", unsafe_allow_html=True)
-    with c_name2:
-        team_a = st.text_input("Squadra Ospite", "Away Team")
+    with c_name1: team_h = st.text_input("Squadra Casa", "Clermont")
+    with c_vs: st.markdown("<h3 style='text-align: center; margin-top: 20px;'>VS</h3>", unsafe_allow_html=True)
+    with c_name2: team_a = st.text_input("Squadra Ospite", "Troyes")
 
-    # --- RIGA 2: DATI ---
+    # Input Dati
     c1, c2, c3 = st.columns(3)
+    elo_h = c1.number_input("ELO Casa", value=1424, min_value=0, step=10)
+    o1 = c1.number_input("Quota 1", value=2.76, min_value=1.01, step=0.01)
     
-    # Casa
-    with c1:
-        elo_h = st.number_input("ELO Casa", value=1424, min_value=0, step=10)
-        o1 = st.number_input("Quota 1", value=2.50, min_value=1.01, step=0.01)
-    
-    # X (Pareggio)
     with c2:
-        st.write("") # Spaziatore
+        st.write("")
         st.write("") 
-        ox = st.number_input("Quota X", value=3.20, min_value=1.01, step=0.01)
+        ox = st.number_input("Quota X", value=3.23, min_value=1.01, step=0.01)
     
-    # Ospite
-    with c3:
-        elo_a = st.number_input("ELO Ospite", value=1543, min_value=0, step=10)
-        o2 = st.number_input("Quota 2", value=2.80, min_value=1.01, step=0.01)
+    elo_a = c3.number_input("ELO Ospite", value=1543, min_value=0, step=10)
+    o2 = c3.number_input("Quota 2", value=2.73, min_value=1.01, step=0.01)
     
     if st.button("Calcola Previsione", type="primary"):
         row = {'elohomeo': elo_h, 'eloawayo': elo_a, 'cotaa': o1, 'cotae': ox, 'cotad': o2}
@@ -145,16 +139,20 @@ with tab1:
         
         st.divider()
         st.subheader(f"Risultati: {team_h} vs {team_a}")
-        st.write(f"**Differenza ELO (con fattore campo):** {int(res['ELO_Diff'])}")
+        st.info(f"**Analisi ELO:** {elo_h} (Casa) + 100 (HFA) vs {elo_a} (Ospite) = Differenza netta **{int(res['ELO_Diff'])}** punti.")
         
         k1, k2, k3 = st.columns(3)
-        def show(col, lbl, odd, ev):
+        
+        # --- NUOVA FUNZIONE VISUALIZZAZIONE CON QUOTE IMPLICITE ---
+        def show(col, lbl, odd, ev, fair):
             color = "inverse" if ev > 0 else "normal"
-            col.metric(lbl, f"{odd}", f"EV: {ev:.1%}", delta_color=color)
+            # Mostriamo la Quota Implicita nel titolo del cartellino
+            label_text = f"Segno {lbl} (Imp: {fair:.2f})"
+            col.metric(label=label_text, value=f"{odd}", delta=f"EV: {ev:.1%}", delta_color=color)
             
-        show(k1, "1", o1, res['EV_1'])
-        show(k2, "X", ox, res['EV_X'])
-        show(k3, "2", o2, res['EV_2'])
+        show(k1, "1", o1, res['EV_1'], res['Fair_1'])
+        show(k2, "X", ox, res['EV_X'], res['Fair_X'])
+        show(k3, "2", o2, res['EV_2'], res['Fair_2'])
 
 uploaded_file = st.sidebar.file_uploader("📂 Carica CSV", type=["csv"])
 
@@ -176,9 +174,15 @@ if uploaded_file:
             else:
                 st.info("ℹ️ Nessun risultato storico trovato.")
             
-            cols_hide = ['res_1x2', 'res_o25', 'res_u25', 'goals_ft', 'EV_1', 'EV_X', 'EV_2']
-            cols_show = [c for c in df.columns if c not in cols_hide] + ['EV_1', 'EV_2']
-            st.dataframe(df[cols_show].head(20))
+            # Mostriamo anche le Quote Implicite nella tabella
+            cols_hide = ['res_1x2', 'res_o25', 'res_u25', 'goals_ft']
+            cols_base = [c for c in df.columns if c not in cols_hide and 'Fair' not in c]
+            # Aggiungiamo colonne Fair alla visualizzazione
+            cols_view = ['datamecic', 'txtechipa1', 'txtechipa2', 'cotaa', 'Fair_1', 'cotad', 'Fair_2', 'EV_1', 'EV_2']
+            # Filtro colonne esistenti
+            cols_final = [c for c in cols_view if c in df.columns]
+            
+            st.dataframe(df[cols_final].head(20).style.format("{:.2f}", subset=['cotaa', 'Fair_1', 'cotad', 'Fair_2']))
 
         with tab3:
             st.header("Analisi Cluster")
@@ -190,7 +194,7 @@ if uploaded_file:
                 st.subheader("Filtra Partite Future")
                 min_ev = st.slider("Minimo Valore EV %", 0, 50, 5)
                 df_future = df[ (df['EV_1']*100 > min_ev) | (df['EV_2']*100 > min_ev) ]
-                st.dataframe(df_future[['datamecic', 'txtechipa1', 'txtechipa2', 'cotaa', 'cotad', 'EV_1', 'EV_2']])
+                st.dataframe(df_future[['datamecic', 'txtechipa1', 'txtechipa2', 'cotaa', 'Fair_1', 'cotad', 'Fair_2', 'EV_1', 'EV_2']])
             else:
                 mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"])
                 c1, c2 = st.columns(2)
