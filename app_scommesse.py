@@ -48,7 +48,6 @@ def calculate_row(row, hfa=100):
     return pd.Series({**res_1x2, 'ELO_Diff': elo_diff})
 
 # --- CARICAMENTO DATI (MODERNO) ---
-# Usiamo st.cache_data perché il server è aggiornato!
 @st.cache_data
 def load_data(file):
     df = pd.read_csv(file, sep=';', encoding='latin1')
