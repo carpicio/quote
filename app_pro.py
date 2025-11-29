@@ -61,14 +61,13 @@ def load_data(file):
             df = pd.read_csv(file, sep=',', encoding='latin1')
             
         df.columns = df.columns.str.strip().str.lower()
-        df = df.loc[:, ~df.columns.duplicated()] # Rimuove colonne duplicate
+        df = df.loc[:, ~df.columns.duplicated()] 
         
         req_cols = ['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo']
         missing = [c for c in req_cols if c not in df.columns]
         if missing:
             return None, f"⚠️ Errore File: Mancano le colonne: {', '.join(missing)}"
 
-        # Pulizia numeri sicura
         cols_num = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
         for c in cols_num:
             if c in df.columns:
@@ -113,14 +112,17 @@ with tab1:
         res = calculate_row(row)
         st.write(f"**Differenza ELO:** {int(res['ELO_Diff'])}")
         k1, k2, k3 = st.columns(3)
+        
+        # CORREZIONE QUI: Aggiunto key=k_suffix per evitare duplicati
         def show(col, lbl, odd, ev, k_suffix):
             color = "inverse" if ev > 0 else "normal"
-            col.metric(lbl, f"{odd}", f"EV: {ev:.1%}", delta_color=color)
+            col.metric(lbl, f"{odd}", f"EV: {ev:.1%}", delta_color=color, key=f"res_metric_{k_suffix}")
+            
         show(k1, "1", o1, res['EV_1'], "1")
         show(k2, "X", ox, res['EV_X'], "X")
         show(k3, "2", o2, res['EV_2'], "2")
 
-uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"], key="file_upl")
+uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"], key="file_upl_v13")
 
 if uploaded_file:
     df, error_msg = load_data(uploaded_file)
@@ -136,8 +138,8 @@ if uploaded_file:
                 pnl_2 = np.where(df_pnl['EV_2']>0, np.where(df_pnl['res_1x2']=='2', df_pnl['cotad']-1, -1), 0).sum()
                 
                 m1, m2 = st.columns(2)
-                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u", key="pnl_home_gen")
-                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u", key="pnl_away_gen")
+                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u", key="pnl_home_gen_v13")
+                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u", key="pnl_away_gen_v13")
             else:
                 st.info("ℹ️ File senza risultati storici.")
             st.dataframe(df.head(10))
@@ -147,16 +149,16 @@ if uploaded_file:
             if 'res_1x2' not in df.columns or df['res_1x2'].isna().all():
                 st.warning("⚠️ Servono risultati storici per questa analisi.")
             else:
-                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"], key="sel_mode")
+                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"], key="sel_mode_v13")
                 c1, c2 = st.columns(2)
-                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0), key="sl_quota")
+                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0), key="sl_quota_v13")
                 
                 use_ev = True
                 if "Over" in mode or "Under" in mode:
-                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500), key="sl_elo")
+                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500), key="sl_elo_v13")
                     use_ev = False
                 else:
-                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0), key="sl_ev")
+                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0), key="sl_ev_v13")
 
                 mask = pd.Series(True, index=df.index)
                 target, col_odd, col_res = None, None, None
@@ -191,10 +193,10 @@ if uploaded_file:
                         roi = (profit/len(df_filt))*100
                         st.divider()
                         k1, k2, k3 = st.columns(3)
-                        # QUI HO AGGIUNTO LE KEYS PER EVITARE L'ERRORE DUPLICATO
-                        k1.metric("Bets", len(df_filt), key=f"m_bets_{mode}")
-                        k2.metric("Profitto", f"{profit:.2f} u", key=f"m_prof_{mode}")
-                        k3.metric("ROI", f"{roi:.2f}%", delta_color="normal" if roi>0 else "inverse", key=f"m_roi_{mode}")
+                        # Keys univoche
+                        k1.metric("Bets", len(df_filt), key=f"m_bets_{mode}_v13")
+                        k2.metric("Profitto", f"{profit:.2f} u", key=f"m_prof_{mode}_v13")
+                        k3.metric("ROI", f"{roi:.2f}%", delta_color="normal" if roi>0 else "inverse", key=f"m_roi_{mode}_v13")
                         
                         cols_view = ['datamecic', 'txtechipa1', 'txtechipa2', col_odd, 'ELO_Diff']
                         cols_view = [c for c in cols_view if c in df_filt.columns]
