@@ -25,7 +25,7 @@ def remove_margin(odd_1, odd_x, odd_2):
         return 0, 0, 0
 
 def calculate_row(row, hfa=100):
-    # Recupera dati con sicurezza (.get evita errori se manca la colonna)
+    # Recupera dati con sicurezza
     elo_h = row.get('elohomeo', 1500)
     elo_a = row.get('eloawayo', 1500)
     o1 = row.get('cotaa', 0)
@@ -53,47 +53,46 @@ def calculate_row(row, hfa=100):
     res['ELO_Diff'] = abs((elo_h + hfa) - elo_a)
     return pd.Series(res)
 
-# --- CARICAMENTO DATI (BLINDATO) ---
+# --- CARICAMENTO DATI (FIX FORMATTAZIONE) ---
 @st.cache_data
 def load_data(file):
     try:
         # Legge il file
         df = pd.read_csv(file, sep=';', encoding='latin1')
         
-        # Se ha letto male (tutto in una colonna), riprova con la virgola
         if len(df.columns) < 5:
             file.seek(0)
             df = pd.read_csv(file, sep=',', encoding='latin1')
             
-        # 1. Normalizza nomi colonne (tutto minuscolo, niente spazi)
-        # Questo risolve problemi tipo "Scor1" vs "scor1" vs "scor1 "
+        # 1. Normalizza nomi colonne
         df.columns = df.columns.str.strip().str.lower()
         
-        # 2. Controllo colonne essenziali per il calcolo quote
+        # 2. Rimuove eventuali colonne duplicate (questo spesso causa l'errore!)
+        df = df.loc[:, ~df.columns.duplicated()]
+        
+        # 3. Controllo colonne essenziali
         req_cols = ['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo']
         missing = [c for c in req_cols if c not in df.columns]
         if missing:
             return None, f"⚠️ Errore File: Mancano le colonne delle quote/ELO: {', '.join(missing)}"
 
-        # 3. Pulizia Numeri
+        # 4. Pulizia Numeri SICURA (Il punto critico)
         cols_num = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
         for c in cols_num:
             if c in df.columns:
-                df[c] = df[c].astype(str).str.replace(',', '.', regex=False)
+                # Usiamo una conversione manuale (lambda) che non fallisce mai
+                df[c] = df[c].apply(lambda x: str(x).replace(',', '.') if pd.notna(x) else x)
                 df[c] = pd.to_numeric(df[c], errors='coerce')
 
         df = df.dropna(subset=['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo'])
         
-        # 4. Applica calcoli (EV, Fair Odds)
+        # 5. Applica calcoli
         calc = df.apply(lambda r: calculate_row(r), axis=1)
         df = pd.concat([df, calc], axis=1)
         
-        # 5. Gestione Risultati (Solo se esistono le colonne punteggio)
-        # Qui c'era l'errore: ora controlliamo prima!
+        # 6. Gestione Risultati
         if 'scor1' in df.columns and 'scor2' in df.columns:
-            # Creiamo colonne risultato solo dove i punteggi non sono vuoti (NaN)
             df['goals_ft'] = df['scor1'] + df['scor2']
-            
             conditions = [df['scor1'] > df['scor2'], df['scor1'] == df['scor2'], df['scor1'] < df['scor2']]
             df['res_1x2'] = np.select(conditions, ['1', 'X', '2'], default=np.nan)
             
@@ -101,13 +100,12 @@ def load_data(file):
                 df['res_o25'] = (df['goals_ft'] > 2.5).astype(int)
                 df['res_u25'] = (df['goals_ft'] < 2.5).astype(int)
         else:
-            # Se mancano i risultati (partite future), creiamo colonne vuote per evitare errori dopo
             df['res_1x2'] = np.nan
             
         return df, None
         
     except Exception as e:
-        return None, f"Errore tecnico: {str(e)}"
+        return None, f"Errore tecnico nel file: {str(e)}"
 
 # --- INTERFACCIA ---
 tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report Generale", "🕵️ Analisi Avanzata"])
@@ -141,11 +139,8 @@ if uploaded_file:
     if error_msg:
         st.error(error_msg)
     else:
-        # Se arriviamo qui, il file è valido!
         with tab2:
             st.header("Report Generale")
-            
-            # Mostra metriche solo se ci sono risultati validi
             if 'res_1x2' in df.columns and df['res_1x2'].notna().any():
                 df_pnl = df.dropna(subset=['res_1x2'])
                 pnl_1 = np.where(df_pnl['EV_1']>0, np.where(df_pnl['res_1x2']=='1', df_pnl['cotaa']-1, -1), 0).sum()
@@ -155,18 +150,15 @@ if uploaded_file:
                 m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u")
                 m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u")
             else:
-                st.info("ℹ️ Il file caricato non contiene risultati storici (scor1/scor2). Mostro le previsioni (EV) per le partite future.")
-
+                st.info("ℹ️ File senza risultati storici. Mostro solo previsioni.")
             st.dataframe(df.head(10))
 
         with tab3:
             st.header("Analisi Cluster")
-            # Mostra analisi solo se ci sono risultati storici
             if 'res_1x2' not in df.columns or df['res_1x2'].isna().all():
-                st.warning("⚠️ Per analizzare la profittabilità dei cluster servono i risultati storici (partite già giocate).")
+                st.warning("⚠️ Servono risultati storici per questa analisi.")
             else:
                 mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"])
-                
                 c1, c2 = st.columns(2)
                 q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0))
                 
@@ -180,7 +172,6 @@ if uploaded_file:
                 mask = pd.Series(True, index=df.index)
                 target, col_odd, col_res = None, None, None
 
-                # Configurazione filtri in base alla scelta
                 if mode == "Casa (1)":
                     col_odd, col_res, target = 'cotaa', 'res_1x2', '1'
                     mask &= (df['EV_1']*100 >= ev_min) & (df['EV_1']*100 <= ev_max)
@@ -201,27 +192,21 @@ if uploaded_file:
                         mask &= (df['ELO_Diff'] >= elo_min) & (df['ELO_Diff'] <= elo_max)
                     else: st.error("Manca quota Under (cotau)")
                 
-                # Applicazione filtri e visualizzazione
                 if col_odd and col_odd in df.columns:
-                    mask &= (df[col_odd] >= q_min) & (df[col_odd] <= q_max)
-                    # Filtra solo righe con risultato valido
-                    mask &= df[col_res].notna()
-                    
+                    mask &= (df[col_odd] >= q_min) & (df[col_odd] <= q_max) & df[col_res].notna()
                     df_filt = df[mask].copy()
                     
                     if len(df_filt) > 0:
                         wins = len(df_filt[df_filt[col_res] == target])
                         profit = (df_filt[df_filt[col_res] == target][col_odd] - 1).sum() - (len(df_filt) - wins)
                         roi = (profit/len(df_filt))*100
-                        
                         st.divider()
                         k1, k2, k3 = st.columns(3)
                         k1.metric("Bets", len(df_filt))
                         k2.metric("Profitto", f"{profit:.2f} u")
                         k3.metric("ROI", f"{roi:.2f}%", delta_color="normal" if roi>0 else "inverse")
-                        
                         cols_view = ['datamecic', 'txtechipa1', 'txtechipa2', col_odd, 'ELO_Diff']
                         cols_view = [c for c in cols_view if c in df_filt.columns]
                         st.dataframe(df_filt[cols_view])
                     else:
-                        st.warning("Nessuna partita trovata con questi criteri.")
+                        st.warning("Nessuna partita trovata.")
