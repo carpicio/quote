@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Value Bet Dual Core v38", page_icon="🧠", layout="wide")
-st.title("🧠 Calcolatore Strategico Dual Core (v38)")
+st.set_page_config(page_title="Value Bet Dual Core v39", page_icon="🧠", layout="wide")
+st.title("🧠 Calcolatore Strategico Dual Core (v39)")
 st.markdown("---")
 
 # --- FUNZIONI MATEMATICHE ---
@@ -108,37 +108,26 @@ def load_data(file):
         return None, f"Errore: {str(e)}"
 
 # --- MOTORE ANALISI CLUSTER ---
-def analyze_input(df_hist, odd, ev, market_type, elo_diff=None):
-    if df_hist is None or df_hist.empty: return None
+def analyze_input(df_hist, odd, ev, market_type):
+    if df_hist is None or df_hist.empty: return 0, 0, 0
     
-    # Filtri di tolleranza (simili alla partita inserita)
     f_odd_min, f_odd_max = odd * 0.9, odd * 1.1
-    f_ev_min = ev - 0.05 # tolleranza 5%
+    f_ev_min = ev - 0.05 
     
     mask = pd.Series(True, index=df_hist.index)
     
-    # Determina colonne
     target, col_odd = None, None
     if market_type == "1": target, col_odd = '1', 'cotaa'
     elif market_type == "2": target, col_odd = '2', 'cotad'
     elif market_type == "X": target, col_odd = 'X', 'cotae'
     
-    # Applica filtro
     mask &= (df_hist[col_odd] >= f_odd_min) & (df_hist[col_odd] <= f_odd_max)
-    
-    # Se EV è rilevante (per 1X2)
     col_ev = f"EV_{market_type}"
     mask &= (df_hist[col_ev] >= f_ev_min)
     
-    # Filtro ELO per Goal (se serve)
-    if elo_diff is not None:
-        # Range ELO +/- 50 punti
-        # ... (Implementazione futura per goal)
-        pass
-
     cluster = df_hist[mask]
     
-    if len(cluster) >= 5: # Minimo statistico
+    if len(cluster) >= 5:
         wins = len(cluster[cluster['res_1x2'] == target])
         profit = (cluster[cluster['res_1x2'] == target][col_odd] - 1).sum() - (len(cluster) - wins)
         roi = (profit / len(cluster)) * 100
@@ -150,7 +139,6 @@ st.sidebar.header("📂 Gestione File")
 file_hist = st.sidebar.file_uploader("1. Carica STORICO (Cervello)", type=["csv"], key="u_hist")
 file_fut = st.sidebar.file_uploader("2. Carica FUTURE (Target)", type=["csv"], key="u_fut")
 
-# Load Dataframes
 df_history, df_future = None, None
 
 if file_hist:
@@ -163,7 +151,6 @@ if file_fut:
     if err_f: st.sidebar.error(f"Err Future: {err_f}")
     else: st.sidebar.success(f"🎯 Future: {len(df_future)} partite")
 
-# TABS
 tab1, tab2, tab3 = st.tabs(["🔮 Manuale + Cluster Check", "🚀 Analisi File Future", "📊 Report Storico"])
 
 with tab1:
@@ -178,13 +165,15 @@ with tab1:
         team_h = st.text_input("Casa", "Home")
         team_a = st.text_input("Ospite", "Away")
         c1, c2 = st.columns(2)
-        elo_h = c1.number_input("ELO Casa", 1500, min_value=0, step=10)
-        elo_a = c2.number_input("ELO Ospite", 1500, min_value=0, step=10)
+        # FIX ERROR: Usiamo value=... esplicitamente
+        elo_h = c1.number_input("ELO Casa", value=1500, min_value=0, step=10)
+        elo_a = c2.number_input("ELO Ospite", value=1500, min_value=0, step=10)
         
         c3, c4, c5 = st.columns(3)
-        o1 = c3.number_input("Quota 1", 2.00, min_value=1.01)
-        ox = c4.number_input("Quota X", 3.00, min_value=1.01)
-        o2 = c5.number_input("Quota 2", 3.50, min_value=1.01)
+        # FIX ERROR: Usiamo value=... esplicitamente
+        o1 = c3.number_input("Quota 1", value=2.00, min_value=1.01)
+        ox = c4.number_input("Quota X", value=3.00, min_value=1.01)
+        o2 = c5.number_input("Quota 2", value=3.50, min_value=1.01)
         
         btn_calc = st.button("Analizza Partita", type="primary")
 
@@ -195,21 +184,19 @@ with tab1:
             
             st.subheader(f"{team_h} vs {team_a}")
             
-            # Funzione Card con Check Storico
             def show_smart_card(label, odd, ev, market_type):
                 bg = "#e9ecef"
                 border = "gray"
                 extra_msg = ""
                 
-                # Check Storico
                 if df_history is not None:
                     n, roi, prof = analyze_input(df_history, odd, ev, market_type)
                     if n > 0 and roi > 5:
-                        bg = "#d4edda" # Verde
+                        bg = "#d4edda"
                         border = "green"
                         extra_msg = f"✅ <b>CLUSTER VINCENTE!</b><br>Su {n} casi simili:<br>ROI: <b>+{roi:.1f}%</b>"
                     elif n > 0 and roi < -5:
-                        bg = "#f8d7da" # Rosso
+                        bg = "#f8d7da"
                         border = "red"
                         extra_msg = f"❌ <b>CLUSTER PERDENTE</b><br>Su {n} casi simili:<br>ROI: <b>{roi:.1f}%</b>"
                     elif n > 0:
@@ -240,45 +227,32 @@ with tab2:
         st.info("Carica un file di partite FUTURE per vedere le segnalazioni automatiche.")
     elif df_history is None:
         st.warning("⚠️ Carica ANCHE lo Storico per permettermi di filtrare le partite buone da quelle cattive.")
-        # Mostra tabella semplice EV
         st.dataframe(df_future[['datamecic', 'txtechipa1', 'txtechipa2', 'cotaa', 'cotad', 'EV_1', 'EV_2']])
     else:
-        # IL CUORE DEL SISTEMA: Incrocia Future con Storico
         st.write("Analisi incrociata: Cerco nel file Future le partite che rientrano nei Cluster Vincenti dello Storico.")
         
         min_roi_target = st.slider("Mostra solo strategie con ROI Storico > %", 0, 50, 10)
         
         results = []
-        
         progress = st.progress(0)
         for i, row in df_future.iterrows():
-            # Check 1
             n1, roi1, p1 = analyze_input(df_history, row['cotaa'], row['EV_1'], "1")
             if n1 >= 10 and roi1 >= min_roi_target and row['EV_1'] > 0:
                 results.append(dict(row, **{'Bet': '1', 'Quota': row['cotaa'], 'EV': row['EV_1'], 'ROI_Storico': roi1, 'Casi_Simili': n1}))
             
-            # Check 2
             n2, roi2, p2 = analyze_input(df_history, row['cotad'], row['EV_2'], "2")
             if n2 >= 10 and roi2 >= min_roi_target and row['EV_2'] > 0:
                 results.append(dict(row, **{'Bet': '2', 'Quota': row['cotad'], 'EV': row['EV_2'], 'ROI_Storico': roi2, 'Casi_Simili': n2}))
             
-            # Check X (Opzionale)
-            nx, roix, px = analyze_input(df_history, row['cotae'], row['EV_X'], "X")
-            if nx >= 10 and roix >= min_roi_target and row['EV_X'] > 0:
-                results.append(dict(row, **{'Bet': 'X', 'Quota': row['cotae'], 'EV': row['EV_X'], 'ROI_Storico': roix, 'Casi_Simili': nx}))
-
             progress.progress((i + 1) / len(df_future))
             
         progress.empty()
         
         if results:
             df_res = pd.DataFrame(results)
-            # Ordina per ROI Storico migliore
             df_res = df_res.sort_values('ROI_Storico', ascending=False)
-            
             st.success(f"Trovate **{len(df_res)}** Occasioni d'Oro!")
             
-            # Tabella Pulita
             cols_show = ['datamecic', 'txtechipa1', 'txtechipa2', 'Bet', 'Quota', 'EV', 'ROI_Storico', 'Casi_Simili']
             st.dataframe(
                 df_res[cols_show].style.format({
@@ -291,7 +265,6 @@ with tab2:
 with tab3:
     st.header("📊 Report File Storico")
     if df_history is not None:
-        # Calcoli base sul file storico
         df_played = df_history[df_history['res_1x2'] != '-']
         if not df_played.empty:
             pnl_1 = np.where(df_played['EV_1']>0, np.where(df_played['res_1x2']=='1', df_played['cotaa']-1, -1), 0).sum()
