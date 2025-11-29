@@ -52,7 +52,6 @@ def calculate_row(row, hfa=100):
     return pd.Series(res)
 
 # --- CARICAMENTO DATI ---
-# Cache disabilitata per sicurezza massima (ttl=0)
 @st.cache_data(ttl=0)
 def load_data(file):
     try:
@@ -64,7 +63,7 @@ def load_data(file):
         df.columns = df.columns.str.strip().str.lower()
         df = df.loc[:, ~df.columns.duplicated()] 
         
-        # FIX FONDAMENTALE: Inizializza colonne mancanti
+        # Inizializzazione sicura colonne
         if 'res_1x2' not in df.columns: df['res_1x2'] = np.nan
         if 'res_o25' not in df.columns: df['res_o25'] = np.nan
         
@@ -84,7 +83,6 @@ def load_data(file):
         calc = df.apply(lambda r: calculate_row(r), axis=1)
         df = pd.concat([df, calc], axis=1)
         
-        # Logica risultati solo se ci sono colonne punteggio
         if 'scor1' in df.columns and 'scor2' in df.columns:
             df['goals_ft'] = df['scor1'] + df['scor2']
             conditions = [df['scor1'] > df['scor2'], df['scor1'] == df['scor2'], df['scor1'] < df['scor2']]
@@ -123,7 +121,7 @@ with tab1:
         show(k2, "X", ox, res['EV_X'], "X")
         show(k3, "2", o2, res['EV_2'], "2")
 
-uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"], key="file_upl_final")
+uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"], key="file_upl_v16")
 
 if uploaded_file:
     df, error_msg = load_data(uploaded_file)
@@ -139,8 +137,8 @@ if uploaded_file:
                 pnl_2 = np.where(df_pnl['EV_2']>0, np.where(df_pnl['res_1x2']=='2', df_pnl['cotad']-1, -1), 0).sum()
                 
                 m1, m2 = st.columns(2)
-                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u", key="pnl_home_gen_final")
-                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u", key="pnl_away_gen_final")
+                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u", key="pnl_home_gen_v16")
+                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u", key="pnl_away_gen_v16")
             else:
                 st.info("ℹ️ File senza risultati storici validi.")
             st.dataframe(df.head(10))
@@ -150,16 +148,16 @@ if uploaded_file:
             if 'res_1x2' not in df.columns or df['res_1x2'].isna().all():
                 st.warning("⚠️ Servono risultati storici per questa analisi.")
             else:
-                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"], key="sel_mode_final")
+                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"], key="sel_mode_v16")
                 c1, c2 = st.columns(2)
-                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0), key="sl_quota_final")
+                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0), key="sl_quota_v16")
                 
                 use_ev = True
                 if "Over" in mode or "Under" in mode:
-                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500), key="sl_elo_final")
+                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500), key="sl_elo_v16")
                     use_ev = False
                 else:
-                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0), key="sl_ev_final")
+                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0), key="sl_ev_v16")
 
                 mask = pd.Series(True, index=df.index)
                 target, col_odd, col_res = None, None, None
@@ -188,14 +186,20 @@ if uploaded_file:
                     mask &= (df[col_odd] >= q_min) & (df[col_odd] <= q_max) & df[col_res].notna()
                     df_filt = df[mask].copy()
                     
+                    # --- FIX DI SICUREZZA PER EVITARE UNBOUND LOCAL ERROR ---
+                    profit = 0.0
+                    roi = 0.0
+                    bets_count = 0
+                    
                     if len(df_filt) > 0:
                         wins = len(df_filt[df_filt[col_res] == target])
                         profit = (df_filt[df_filt[col_res] == target][col_odd] - 1).sum() - (len(df_filt) - wins)
                         roi = (profit/len(df_filt))*100
+                        bets_count = len(df_filt)
+                        
                         st.divider()
                         k1, k2, k3 = st.columns(3)
-                        # QUI HO RIMOSSO LE KEYS per evitare conflitti "DuplicateWidgetID"
-                        k1.metric("Bets", len(df_filt))
+                        k1.metric("Bets", bets_count)
                         k2.metric("Profitto", f"{profit:.2f} u")
                         k3.metric("ROI", f"{roi:.2f}%", delta_color="normal" if roi>0 else "inverse")
                         
