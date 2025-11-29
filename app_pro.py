@@ -25,7 +25,6 @@ def remove_margin(odd_1, odd_x, odd_2):
         return 0, 0, 0
 
 def calculate_row(row, hfa=100):
-    # Recupera dati con sicurezza
     elo_h = row.get('elohomeo', 1500)
     elo_a = row.get('eloawayo', 1500)
     o1 = row.get('cotaa', 0)
@@ -34,7 +33,6 @@ def calculate_row(row, hfa=100):
     
     res = {'EV_1': -1, 'EV_X': -1, 'EV_2': -1, 'Fair_1': 0, 'Fair_X': 0, 'Fair_2': 0, 'ELO_Diff': 0}
     
-    # Calcolo solo se i dati sono numeri validi
     if pd.notna(o1) and pd.notna(ox) and pd.notna(o2) and o1 > 0:
         pf_1, pf_x, pf_2 = remove_margin(o1, ox, o2)
         p_elo_h, p_elo_a = get_implicit_probs(elo_h, elo_a, hfa)
@@ -53,44 +51,35 @@ def calculate_row(row, hfa=100):
     res['ELO_Diff'] = abs((elo_h + hfa) - elo_a)
     return pd.Series(res)
 
-# --- CARICAMENTO DATI (FIX FORMATTAZIONE) ---
+# --- CARICAMENTO DATI ---
 @st.cache_data
 def load_data(file):
     try:
-        # Legge il file
         df = pd.read_csv(file, sep=';', encoding='latin1')
-        
         if len(df.columns) < 5:
             file.seek(0)
             df = pd.read_csv(file, sep=',', encoding='latin1')
             
-        # 1. Normalizza nomi colonne
         df.columns = df.columns.str.strip().str.lower()
+        df = df.loc[:, ~df.columns.duplicated()] # Rimuove colonne duplicate
         
-        # 2. Rimuove eventuali colonne duplicate (questo spesso causa l'errore!)
-        df = df.loc[:, ~df.columns.duplicated()]
-        
-        # 3. Controllo colonne essenziali
         req_cols = ['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo']
         missing = [c for c in req_cols if c not in df.columns]
         if missing:
-            return None, f"⚠️ Errore File: Mancano le colonne delle quote/ELO: {', '.join(missing)}"
+            return None, f"⚠️ Errore File: Mancano le colonne: {', '.join(missing)}"
 
-        # 4. Pulizia Numeri SICURA (Il punto critico)
+        # Pulizia numeri sicura
         cols_num = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
         for c in cols_num:
             if c in df.columns:
-                # Usiamo una conversione manuale (lambda) che non fallisce mai
                 df[c] = df[c].apply(lambda x: str(x).replace(',', '.') if pd.notna(x) else x)
                 df[c] = pd.to_numeric(df[c], errors='coerce')
 
         df = df.dropna(subset=['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo'])
         
-        # 5. Applica calcoli
         calc = df.apply(lambda r: calculate_row(r), axis=1)
         df = pd.concat([df, calc], axis=1)
         
-        # 6. Gestione Risultati
         if 'scor1' in df.columns and 'scor2' in df.columns:
             df['goals_ft'] = df['scor1'] + df['scor2']
             conditions = [df['scor1'] > df['scor2'], df['scor1'] == df['scor2'], df['scor1'] < df['scor2']]
@@ -105,7 +94,7 @@ def load_data(file):
         return df, None
         
     except Exception as e:
-        return None, f"Errore tecnico nel file: {str(e)}"
+        return None, f"Errore tecnico: {str(e)}"
 
 # --- INTERFACCIA ---
 tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report Generale", "🕵️ Analisi Avanzata"])
@@ -113,25 +102,25 @@ tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report Generale", "🕵️
 with tab1:
     st.header("Calcolatore 1X2")
     c1, c2, c3 = st.columns(3)
-    elo_h = c1.number_input("ELO Casa", 1500)
-    elo_a = c3.number_input("ELO Ospite", 1500)
-    o1 = c1.number_input("Quota 1", 2.0)
-    ox = c2.number_input("Quota X", 3.0)
-    o2 = c3.number_input("Quota 2", 3.5)
+    elo_h = c1.number_input("ELO Casa", 1500, key="t1_eh")
+    elo_a = c3.number_input("ELO Ospite", 1500, key="t1_ea")
+    o1 = c1.number_input("Quota 1", 2.0, key="t1_o1")
+    ox = c2.number_input("Quota X", 3.0, key="t1_ox")
+    o2 = c3.number_input("Quota 2", 3.5, key="t1_o2")
     
-    if st.button("Calcola"):
+    if st.button("Calcola", key="btn_calc"):
         row = {'elohomeo': elo_h, 'eloawayo': elo_a, 'cotaa': o1, 'cotae': ox, 'cotad': o2}
         res = calculate_row(row)
         st.write(f"**Differenza ELO:** {int(res['ELO_Diff'])}")
         k1, k2, k3 = st.columns(3)
-        def show(col, lbl, odd, ev):
+        def show(col, lbl, odd, ev, k_suffix):
             color = "inverse" if ev > 0 else "normal"
             col.metric(lbl, f"{odd}", f"EV: {ev:.1%}", delta_color=color)
-        show(k1, "1", o1, res['EV_1'])
-        show(k2, "X", ox, res['EV_X'])
-        show(k3, "2", o2, res['EV_2'])
+        show(k1, "1", o1, res['EV_1'], "1")
+        show(k2, "X", ox, res['EV_X'], "X")
+        show(k3, "2", o2, res['EV_2'], "2")
 
-uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"])
+uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"], key="file_upl")
 
 if uploaded_file:
     df, error_msg = load_data(uploaded_file)
@@ -147,10 +136,10 @@ if uploaded_file:
                 pnl_2 = np.where(df_pnl['EV_2']>0, np.where(df_pnl['res_1x2']=='2', df_pnl['cotad']-1, -1), 0).sum()
                 
                 m1, m2 = st.columns(2)
-                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u")
-                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u")
+                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u", key="pnl_home_gen")
+                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u", key="pnl_away_gen")
             else:
-                st.info("ℹ️ File senza risultati storici. Mostro solo previsioni.")
+                st.info("ℹ️ File senza risultati storici.")
             st.dataframe(df.head(10))
 
         with tab3:
@@ -158,16 +147,16 @@ if uploaded_file:
             if 'res_1x2' not in df.columns or df['res_1x2'].isna().all():
                 st.warning("⚠️ Servono risultati storici per questa analisi.")
             else:
-                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"])
+                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"], key="sel_mode")
                 c1, c2 = st.columns(2)
-                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0))
+                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0), key="sl_quota")
                 
                 use_ev = True
                 if "Over" in mode or "Under" in mode:
-                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500))
+                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500), key="sl_elo")
                     use_ev = False
                 else:
-                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0))
+                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0), key="sl_ev")
 
                 mask = pd.Series(True, index=df.index)
                 target, col_odd, col_res = None, None, None
@@ -202,9 +191,11 @@ if uploaded_file:
                         roi = (profit/len(df_filt))*100
                         st.divider()
                         k1, k2, k3 = st.columns(3)
-                        k1.metric("Bets", len(df_filt))
-                        k2.metric("Profitto", f"{profit:.2f} u")
-                        k3.metric("ROI", f"{roi:.2f}%", delta_color="normal" if roi>0 else "inverse")
+                        # QUI HO AGGIUNTO LE KEYS PER EVITARE L'ERRORE DUPLICATO
+                        k1.metric("Bets", len(df_filt), key=f"m_bets_{mode}")
+                        k2.metric("Profitto", f"{profit:.2f} u", key=f"m_prof_{mode}")
+                        k3.metric("ROI", f"{roi:.2f}%", delta_color="normal" if roi>0 else "inverse", key=f"m_roi_{mode}")
+                        
                         cols_view = ['datamecic', 'txtechipa1', 'txtechipa2', col_odd, 'ELO_Diff']
                         cols_view = [c for c in cols_view if c in df_filt.columns]
                         st.dataframe(df_filt[cols_view])
