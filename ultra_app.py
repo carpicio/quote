@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Value Bet Pro v19", layout="wide")
-st.title("⚽ Calcolatore Strategico: 1X2 & Goals (v19)")
+st.set_page_config(page_title="Value Bet Pro v20", layout="wide")
+st.title("⚽ Calcolatore Strategico: 1X2 & Goals (v20)")
 
 # --- FUNZIONI DI CALCOLO ---
 def get_implicit_probs(elo_home, elo_away, hfa=100):
@@ -33,6 +33,7 @@ def calculate_row(row, hfa=100):
     
     res = {'EV_1': -1, 'EV_X': -1, 'EV_2': -1, 'Fair_1': 0, 'Fair_X': 0, 'Fair_2': 0, 'ELO_Diff': 0}
     
+    # Esegue calcoli solo se i dati esistono e sono validi
     if pd.notna(o1) and pd.notna(ox) and pd.notna(o2) and o1 > 0:
         pf_1, pf_x, pf_2 = remove_margin(o1, ox, o2)
         p_elo_h, p_elo_a = get_implicit_probs(elo_h, elo_a, hfa)
@@ -55,33 +56,50 @@ def calculate_row(row, hfa=100):
 @st.cache_data(ttl=0)
 def load_data(file):
     try:
-        df = pd.read_csv(file, sep=';', encoding='latin1')
-        if len(df.columns) < 5:
+        # TENTATIVO 1: Motore Python intelligente (rileva separatore in automatico)
+        try:
+            df = pd.read_csv(file, sep=None, engine='python', encoding='latin1')
+        except:
+            # Fallback manuale se il motore intelligente fallisce
             file.seek(0)
-            df = pd.read_csv(file, sep=',', encoding='latin1')
-            
+            df = pd.read_csv(file, sep=';', encoding='latin1')
+
+        # Normalizzazione nomi colonne
         df.columns = df.columns.str.strip().str.lower()
         df = df.loc[:, ~df.columns.duplicated()] 
         
+        # Init colonne opzionali
         if 'res_1x2' not in df.columns: df['res_1x2'] = np.nan
         if 'res_o25' not in df.columns: df['res_o25'] = np.nan
         
+        # CHECK COLONNE
         req_cols = ['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo']
         missing = [c for c in req_cols if c not in df.columns]
         if missing:
-            return None, f"⚠️ Errore File: Mancano le colonne: {', '.join(missing)}"
+            return None, f"⚠️ Errore File: Mancano le colonne: {', '.join(missing)}.\n\nColonne trovate: {list(df.columns)}"
 
+        # CONVERSIONE NUMERI
         cols_num = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
         for c in cols_num:
             if c in df.columns:
-                df[c] = df[c].apply(lambda x: str(x).replace(',', '.') if pd.notna(x) else x)
+                # Converte in stringa, cambia virgola in punto, poi converte in numero
+                df[c] = df[c].astype(str).str.replace(',', '.', regex=False)
                 df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        df = df.dropna(subset=['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo'])
+        # FILTRO RIGHE SICURO (Sostituisce dropna che causava crash)
+        # Filtra solo le righe dove tutte le colonne richieste hanno un valore valido
+        mask = df['cotaa'].notna() & df['cotae'].notna() & df['cotad'].notna() & \
+               df['elohomeo'].notna() & df['eloawayo'].notna()
+        df = df[mask]
+
+        if df.empty:
+            return None, "⚠️ Il file è vuoto dopo aver rimosso le righe senza quote."
         
+        # APPLICAZIONE CALCOLI
         calc = df.apply(lambda r: calculate_row(r), axis=1)
         df = pd.concat([df, calc], axis=1)
         
+        # RISULTATI PARTITE
         if 'scor1' in df.columns and 'scor2' in df.columns:
             df['goals_ft'] = df['scor1'] + df['scor2']
             conditions = [df['scor1'] > df['scor2'], df['scor1'] == df['scor2'], df['scor1'] < df['scor2']]
@@ -94,7 +112,7 @@ def load_data(file):
         return df, None
         
     except Exception as e:
-        return None, f"Errore tecnico: {str(e)}"
+        return None, f"Errore tecnico imprevisto: {str(e)}"
 
 # --- INTERFACCIA ---
 tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report Generale", "🕵️ Analisi Avanzata"])
@@ -120,13 +138,22 @@ with tab1:
         show(k2, "X", ox, res['EV_X'], "X")
         show(k3, "2", o2, res['EV_2'], "2")
 
-uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"], key="file_upl_v19")
+uploaded_file = st.sidebar.file_uploader("📂 Carica CSV (CGMBet)", type=["csv"], key="file_upl_v20")
 
 if uploaded_file:
     df, error_msg = load_data(uploaded_file)
     
     if error_msg:
         st.error(error_msg)
+        # Debug Expander per vedere cosa non va
+        with st.expander("🛠️ Debug Info (Vedi Colonne)"):
+            try:
+                uploaded_file.seek(0)
+                debug_df = pd.read_csv(uploaded_file, sep=None, engine='python', encoding='latin1', nrows=5)
+                st.write("Colonne trovate nel file:", list(debug_df.columns))
+                st.write("Anteprima dati:", debug_df)
+            except:
+                st.write("Impossibile leggere il file per il debug.")
     else:
         with tab2:
             st.header("Report Generale")
@@ -136,8 +163,8 @@ if uploaded_file:
                 pnl_2 = np.where(df_pnl['EV_2']>0, np.where(df_pnl['res_1x2']=='2', df_pnl['cotad']-1, -1), 0).sum()
                 
                 m1, m2 = st.columns(2)
-                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u", key="pnl_home_gen_v19")
-                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u", key="pnl_away_gen_v19")
+                m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u", key="pnl_home_gen_v20")
+                m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u", key="pnl_away_gen_v20")
             else:
                 st.info("ℹ️ File senza risultati storici validi.")
             st.dataframe(df.head(10))
@@ -145,7 +172,7 @@ if uploaded_file:
         with tab3:
             st.header("Analisi Cluster")
             
-            # --- DEFINIZIONE VARIABILI SICURA (con nomi nuovi) ---
+            # Variabili sicure
             my_profit = 0.0
             my_roi = 0.0
             my_bets = 0
@@ -153,16 +180,16 @@ if uploaded_file:
             if 'res_1x2' not in df.columns or df['res_1x2'].isna().all():
                 st.warning("⚠️ Servono risultati storici per questa analisi.")
             else:
-                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"], key="sel_mode_v19")
+                mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"], key="sel_mode_v20")
                 c1, c2 = st.columns(2)
-                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0), key="sl_quota_v19")
+                q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0), key="sl_quota_v20")
                 
                 use_ev = True
                 if "Over" in mode or "Under" in mode:
-                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500), key="sl_elo_v19")
+                    elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500), key="sl_elo_v20")
                     use_ev = False
                 else:
-                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0), key="sl_ev_v19")
+                    ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0), key="sl_ev_v20")
 
                 mask = pd.Series(True, index=df.index)
                 target, col_odd, col_res = None, None, None
@@ -187,15 +214,12 @@ if uploaded_file:
                         mask &= (df['ELO_Diff'] >= elo_min) & (df['ELO_Diff'] <= elo_max)
                     else: st.error("Manca quota Under (cotau)")
                 
-                # Calcoli e Visualizzazione
                 if col_odd and col_odd in df.columns:
                     mask &= (df[col_odd] >= q_min) & (df[col_odd] <= q_max) & df[col_res].notna()
                     df_filt = df[mask].copy()
                     
                     if len(df_filt) > 0:
                         wins = len(df_filt[df_filt[col_res] == target])
-                        
-                        # CALCOLI
                         my_profit = (df_filt[df_filt[col_res] == target][col_odd] - 1).sum() - (len(df_filt) - wins)
                         my_roi = (my_profit/len(df_filt))*100
                         my_bets = len(df_filt)
