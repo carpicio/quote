@@ -2,10 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# --- CONFIGURAZIONE (CORRETTA) ---
-# Qui ho aggiunto page_icon="⚽" per evitare l'errore che vedevi
-st.set_page_config(page_title="Value Bet Smart", page_icon="⚽", layout="wide")
-st.title("⚽ Calcolatore Strategico (Compatibile Universale)")
+# --- CONFIGURAZIONE ---
+st.set_page_config(page_title="Value Bet Final", page_icon="⚽", layout="wide")
+st.title("⚽ Calcolatore Strategico (Final Fix)")
 
 # --- FUNZIONI DI CALCOLO ---
 def get_implicit_probs(elo_home, elo_away, hfa=100):
@@ -27,7 +26,6 @@ def remove_margin(odd_1, odd_x, odd_2):
 
 def calculate_row(row, hfa=100):
     res = {'EV_1': -1, 'EV_X': -1, 'EV_2': -1, 'Fair_1': 0, 'Fair_X': 0, 'Fair_2': 0, 'ELO_Diff': 0}
-    
     try:
         elo_h = float(row.get('elohomeo', 1500))
         elo_a = float(row.get('eloawayo', 1500))
@@ -40,7 +38,6 @@ def calculate_row(row, hfa=100):
     if o1 > 0 and ox > 0 and o2 > 0:
         pf_1, pf_x, pf_2 = remove_margin(o1, ox, o2)
         p_elo_h, p_elo_a = get_implicit_probs(elo_h, elo_a, hfa)
-        
         rem = 1 - pf_x
         p_fin_1 = rem * p_elo_h
         p_fin_2 = rem * p_elo_a
@@ -55,7 +52,7 @@ def calculate_row(row, hfa=100):
     res['ELO_Diff'] = abs((elo_h + hfa) - elo_a)
     return pd.Series(res)
 
-# --- CARICAMENTO E NORMALIZZAZIONE DATI ---
+# --- CARICAMENTO DATI ---
 @st.cache_data(ttl=0)
 def load_data(file):
     try:
@@ -67,10 +64,10 @@ def load_data(file):
             file.seek(0)
             df = pd.read_csv(file, sep=',', encoding='latin1')
 
-        # 2. Pulizia Nomi Colonne
+        # 2. Pulizia Nomi
         df.columns = df.columns.str.strip().str.lower()
         
-        # 3. MAPPA DEI NOMI
+        # 3. Mappa Nomi
         rename_map = {
             '1': 'cotaa', 'x': 'cotae', '2': 'cotad',
             'eloc': 'elohomeo', 'eloo': 'eloawayo',
@@ -80,39 +77,36 @@ def load_data(file):
         }
         df = df.rename(columns=rename_map)
         
-        # 4. Controllo Colonne Essenziali
+        # 4. Verifica Colonne
         req_cols = ['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo']
         missing = [c for c in req_cols if c not in df.columns]
-        
-        if missing:
-            return None, f"⚠️ Errore: Non trovo le colonne necessarie. Colonne lette: {list(df.columns)}"
+        if missing: return None, f"⚠️ Errore Colonne: {missing}"
 
         # 5. Pulizia Numeri
-        cols_to_numeric = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
-        for c in cols_to_numeric:
+        cols_num = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
+        for c in cols_num:
             if c in df.columns:
                 df[c] = df[c].astype(str).str.replace(',', '.', regex=False)
                 df[c] = pd.to_numeric(df[c], errors='coerce')
 
-        # 6. Rimozione righe vuote
         df = df.dropna(subset=['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo'])
-        if df.empty: return None, "⚠️ Il file non contiene dati validi."
-
-        # 7. Calcoli
+        
+        # 6. Calcoli
         calc = df.apply(lambda r: calculate_row(r), axis=1)
         df = pd.concat([df, calc], axis=1)
         
-        # 8. Gestione Risultati
+        # 7. Gestione Risultati (FIX CRITICO QUI)
         if 'scor1' in df.columns and 'scor2' in df.columns:
             df['goals_ft'] = df['scor1'] + df['scor2']
             conditions = [df['scor1'] > df['scor2'], df['scor1'] == df['scor2'], df['scor1'] < df['scor2']]
-            df['res_1x2'] = np.select(conditions, ['1', 'X', '2'], default=np.nan)
+            # ECCO LA CORREZIONE: default='-' invece di np.nan
+            df['res_1x2'] = np.select(conditions, ['1', 'X', '2'], default='-')
             
             if 'cotao' in df.columns:
                 df['res_o25'] = (df['goals_ft'] > 2.5).astype(int)
                 df['res_u25'] = (df['goals_ft'] < 2.5).astype(int)
         else:
-            df['res_1x2'] = np.nan
+            df['res_1x2'] = '-' # Valore sicuro
             
         return df, None
 
@@ -120,7 +114,7 @@ def load_data(file):
         return None, f"Errore Tecnico: {str(e)}"
 
 # --- INTERFACCIA ---
-tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report Generale", "🕵️ Analisi Avanzata"])
+tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report", "🕵️ Analisi"])
 
 with tab1:
     st.header("Calcolatore Manuale")
@@ -153,63 +147,75 @@ if uploaded_file:
     else:
         with tab2:
             st.header("Report Generale")
-            if 'res_1x2' in df.columns and df['res_1x2'].notna().any():
-                df_pnl = df.dropna(subset=['res_1x2'])
-                pnl_1 = np.where(df_pnl['EV_1']>0, np.where(df_pnl['res_1x2']=='1', df_pnl['cotaa']-1, -1), 0).sum()
-                pnl_2 = np.where(df_pnl['EV_2']>0, np.where(df_pnl['res_1x2']=='2', df_pnl['cotad']-1, -1), 0).sum()
+            # Filtriamo solo dove c'è un risultato valido (non '-')
+            df_valid = df[df['res_1x2'] != '-'].copy()
+            
+            if not df_valid.empty:
+                pnl_1 = np.where(df_valid['EV_1']>0, np.where(df_valid['res_1x2']=='1', df_valid['cotaa']-1, -1), 0).sum()
+                pnl_2 = np.where(df_valid['EV_2']>0, np.where(df_valid['res_1x2']=='2', df_valid['cotad']-1, -1), 0).sum()
                 m1, m2 = st.columns(2)
                 m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u")
                 m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u")
             else:
-                st.info("ℹ️ File caricato! Risultati storici non trovati (o partite future).")
+                st.info("ℹ️ File caricato! Nessun risultato storico trovato (partite future).")
             
-            cols_to_show = [c for c in df.columns if c not in ['res_1x2', 'res_o25', 'res_u25', 'goals_ft']]
-            st.dataframe(df[cols_to_show].head(10))
+            # Tabella pulita
+            cols_hide = ['res_1x2', 'res_o25', 'res_u25', 'goals_ft', 'EV_1', 'EV_X', 'EV_2']
+            cols_show = [c for c in df.columns if c not in cols_hide] + ['EV_1', 'EV_2']
+            st.dataframe(df[cols_show].head(20))
 
         with tab3:
             st.header("Analisi Cluster")
             my_profit, my_roi, my_bets = 0.0, 0.0, 0
             
-            if 'res_1x2' not in df.columns or df['res_1x2'].isna().all():
-                st.warning("⚠️ Servono risultati storici per questa analisi.")
+            # Verifica se ci sono risultati
+            df_valid = df[df['res_1x2'] != '-'].copy()
+            
+            if df_valid.empty:
+                st.warning("⚠️ Servono risultati storici per calcolare il ROI.")
+                st.subheader("Filtra Partite Future")
+                min_ev = st.slider("Minimo Valore EV %", 0, 50, 5)
+                # Filtro solo future
+                df_future = df[ (df['EV_1']*100 > min_ev) | (df['EV_2']*100 > min_ev) ]
+                st.dataframe(df_future[['datamecic', 'txtechipa1', 'txtechipa2', 'cotaa', 'cotad', 'EV_1', 'EV_2']])
             else:
                 mode = st.selectbox("Mercato", ["Casa (1)", "Ospite (2)", "Pareggio (X)", "Over 2.5", "Under 2.5"])
                 c1, c2 = st.columns(2)
                 q_min, q_max = c1.slider("Range Quota", 1.0, 10.0, (1.5, 4.0))
                 
-                use_ev = True
                 if "Over" in mode or "Under" in mode:
                     elo_min, elo_max = c2.slider("Differenza ELO", 0, 500, (0, 500))
                     use_ev = False
                 else:
                     ev_min, ev_max = c2.slider("Range EV %", -10.0, 100.0, (0.0, 50.0))
+                    use_ev = True
 
-                mask = pd.Series(True, index=df.index)
+                mask = pd.Series(True, index=df_valid.index)
                 target, col_odd, col_res = None, None, None
 
                 if mode == "Casa (1)":
                     col_odd, col_res, target = 'cotaa', 'res_1x2', '1'
-                    mask &= (df['EV_1']*100 >= ev_min) & (df['EV_1']*100 <= ev_max)
+                    mask &= (df_valid['EV_1']*100 >= ev_min) & (df_valid['EV_1']*100 <= ev_max)
                 elif mode == "Ospite (2)":
                     col_odd, col_res, target = 'cotad', 'res_1x2', '2'
-                    mask &= (df['EV_2']*100 >= ev_min) & (df['EV_2']*100 <= ev_max)
+                    mask &= (df_valid['EV_2']*100 >= ev_min) & (df_valid['EV_2']*100 <= ev_max)
                 elif mode == "Pareggio (X)":
                     col_odd, col_res, target = 'cotae', 'res_1x2', 'X'
-                    mask &= (df['EV_X']*100 >= ev_min) & (df['EV_X']*100 <= ev_max)
+                    mask &= (df_valid['EV_X']*100 >= ev_min) & (df_valid['EV_X']*100 <= ev_max)
                 elif mode == "Over 2.5":
                     if 'cotao' in df.columns:
                         col_odd, col_res, target = 'cotao', 'res_o25', 1
-                        mask &= (df['ELO_Diff'] >= elo_min) & (df['ELO_Diff'] <= elo_max)
+                        mask &= (df_valid['ELO_Diff'] >= elo_min) & (df_valid['ELO_Diff'] <= elo_max)
                     else: st.error("Manca quota Over (O2,5)")
                 elif mode == "Under 2.5":
                     if 'cotau' in df.columns:
                         col_odd, col_res, target = 'cotau', 'res_u25', 1
-                        mask &= (df['ELO_Diff'] >= elo_min) & (df['ELO_Diff'] <= elo_max)
+                        mask &= (df_valid['ELO_Diff'] >= elo_min) & (df_valid['ELO_Diff'] <= elo_max)
                     else: st.error("Manca quota Under (U2,5)")
                 
                 if col_odd and col_odd in df.columns:
-                    mask &= (df[col_odd] >= q_min) & (df[col_odd] <= q_max) & df[col_res].notna()
-                    df_filt = df[mask].copy()
+                    mask &= (df_valid[col_odd] >= q_min) & (df_valid[col_odd] <= q_max)
+                    df_filt = df_valid[mask].copy()
                     
                     if len(df_filt) > 0:
                         wins = len(df_filt[df_filt[col_res] == target])
