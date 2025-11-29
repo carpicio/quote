@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Value Bet Dual Core v39", page_icon="🧠", layout="wide")
-st.title("🧠 Calcolatore Strategico Dual Core (v39)")
+st.set_page_config(page_title="Value Bet High Contrast v40", page_icon="💎", layout="wide")
+st.title("💎 Calcolatore Strategico (High Contrast v40)")
 st.markdown("---")
 
 # --- FUNZIONI MATEMATICHE ---
@@ -87,7 +87,6 @@ def load_data(file):
         calc = df.apply(lambda r: calculate_row(r), axis=1)
         df = pd.concat([df, calc], axis=1)
         
-        # Gestione Risultati
         df['res_1x2'] = '-' 
         if 'scor1' in df.columns and 'scor2' in df.columns:
             mask = df['scor1'].notna() & df['scor2'].notna()
@@ -107,7 +106,7 @@ def load_data(file):
     except Exception as e:
         return None, f"Errore: {str(e)}"
 
-# --- MOTORE ANALISI CLUSTER ---
+# --- MOTORE CLUSTER ---
 def analyze_input(df_hist, odd, ev, market_type):
     if df_hist is None or df_hist.empty: return 0, 0, 0
     
@@ -165,12 +164,10 @@ with tab1:
         team_h = st.text_input("Casa", "Home")
         team_a = st.text_input("Ospite", "Away")
         c1, c2 = st.columns(2)
-        # FIX ERROR: Usiamo value=... esplicitamente
         elo_h = c1.number_input("ELO Casa", value=1500, min_value=0, step=10)
         elo_a = c2.number_input("ELO Ospite", value=1500, min_value=0, step=10)
         
         c3, c4, c5 = st.columns(3)
-        # FIX ERROR: Usiamo value=... esplicitamente
         o1 = c3.number_input("Quota 1", value=2.00, min_value=1.01)
         ox = c4.number_input("Quota X", value=3.00, min_value=1.01)
         o2 = c5.number_input("Quota 2", value=3.50, min_value=1.01)
@@ -184,34 +181,33 @@ with tab1:
             
             st.subheader(f"{team_h} vs {team_a}")
             
+            # Funzione Grafica High Contrast
             def show_smart_card(label, odd, ev, market_type):
-                bg = "#e9ecef"
-                border = "gray"
-                extra_msg = ""
+                # Colori Sfondo Intensi
+                bg = "#28a745" if ev > 0 else "#dc3545" # Verde scuro / Rosso scuro
+                border = "#1e7e34" if ev > 0 else "#bd2130"
+                text_color = "white" # Testo Bianco per contrasto
+                extra_bg = "rgba(0,0,0,0.2)" # Sfondo scuro per i dettagli
+                
+                extra_msg = "Dati storici non caricati"
                 
                 if df_history is not None:
                     n, roi, prof = analyze_input(df_history, odd, ev, market_type)
                     if n > 0 and roi > 5:
-                        bg = "#d4edda"
-                        border = "green"
-                        extra_msg = f"✅ <b>CLUSTER VINCENTE!</b><br>Su {n} casi simili:<br>ROI: <b>+{roi:.1f}%</b>"
+                        extra_msg = f"✅ CLUSTER VINCENTE<br>ROI Storico: <b>+{roi:.1f}%</b> ({n} casi)"
                     elif n > 0 and roi < -5:
-                        bg = "#f8d7da"
-                        border = "red"
-                        extra_msg = f"❌ <b>CLUSTER PERDENTE</b><br>Su {n} casi simili:<br>ROI: <b>{roi:.1f}%</b>"
+                        extra_msg = f"❌ CLUSTER PERDENTE<br>ROI Storico: <b>{roi:.1f}%</b> ({n} casi)"
                     elif n > 0:
-                        extra_msg = f"⚖️ Storico Neutro ({n} casi)"
+                        extra_msg = f"⚖️ Neutro ({n} casi)"
                     else:
-                        extra_msg = "⚪ Dati storici insufficienti"
-                
-                ev_color = "green" if ev > 0 else "red"
+                        extra_msg = "⚪ Dati insufficienti"
                 
                 st.markdown(f"""
-                <div style="background-color:{bg}; padding:10px; border-radius:8px; border-left:5px solid {border}; margin-bottom:10px;">
-                    <div style="font-size:20px; font-weight:bold;">Segno {label}</div>
-                    <div style="font-size:30px; font-weight:800;">{odd:.2f}</div>
-                    <div style="color:{ev_color}; font-weight:bold;">EV: {ev:+.1%}</div>
-                    <div style="margin-top:5px; font-size:13px; line-height:1.2;">{extra_msg}</div>
+                <div style="background-color:{bg}; color:{text_color}; padding:15px; border-radius:10px; border-left:8px solid {border}; margin-bottom:10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.2);">
+                    <div style="font-size:22px; font-weight:bold; margin-bottom:5px;">Segno {label}</div>
+                    <div style="font-size:42px; font-weight:900; line-height:1;">{odd:.2f}</div>
+                    <div style="font-size:18px; font-weight:bold; margin-top:5px; background-color:{extra_bg}; padding:2px 8px; border-radius:4px; display:inline-block;">EV: {ev:+.1%}</div>
+                    <div style="margin-top:10px; font-size:14px; background-color:white; color:black; padding:8px; border-radius:5px;">{extra_msg}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -251,6 +247,7 @@ with tab2:
         if results:
             df_res = pd.DataFrame(results)
             df_res = df_res.sort_values('ROI_Storico', ascending=False)
+            
             st.success(f"Trovate **{len(df_res)}** Occasioni d'Oro!")
             
             cols_show = ['datamecic', 'txtechipa1', 'txtechipa2', 'Bet', 'Quota', 'EV', 'ROI_Storico', 'Casi_Simili']
