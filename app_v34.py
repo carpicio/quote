@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Value Bet v33", page_icon="⚽", layout="wide")
-st.title("⚽ Calcolatore Strategico (v33 - Contrast Fix)")
+st.set_page_config(page_title="Value Bet v34", page_icon="⚽", layout="wide")
+st.title("⚽ Calcolatore Strategico (v34 - Fix Totale)")
 
 # --- FUNZIONI DI CALCOLO ---
 def get_implicit_probs(elo_home, elo_away, hfa=100):
@@ -56,7 +56,9 @@ def calculate_row(row, hfa=100):
 # --- CARICAMENTO DATI ---
 @st.cache_data(ttl=0)
 def load_data(file):
+    debug_logs = []
     try:
+        # 1. Lettura File
         try:
             df = pd.read_csv(file, sep=';', encoding='latin1')
             if len(df.columns) < 5: raise ValueError
@@ -64,54 +66,63 @@ def load_data(file):
             file.seek(0)
             df = pd.read_csv(file, sep=',', encoding='latin1')
 
+        # 2. Pulizia Nomi Colonne
         df.columns = df.columns.str.strip().str.lower()
+        debug_logs.append(f"Colonne trovate (raw): {list(df.columns)}")
         
-        # Mappa Completa per riconoscere i tuoi file
+        # 3. Mappa Nomi (Gestisce sia il vecchio scor1 che il nuovo gfinc)
         rename_map = {
             '1': 'cotaa', 'x': 'cotae', '2': 'cotad',
             'eloc': 'elohomeo', 'eloo': 'eloawayo',
-            'gfinc': 'scor1', 'gfino': 'scor2', # IMPORTANTISSIMO
+            'gfinc': 'scor1', 'gfino': 'scor2', # Mappatura fondamentale
             'o2,5': 'cotao', 'u2,5': 'cotau',
             'data': 'datamecic', 'casa': 'txtechipa1', 'ospite': 'txtechipa2'
         }
         df = df.rename(columns=rename_map)
+        debug_logs.append(f"Colonne dopo rinomina: {list(df.columns)}")
         
+        # 4. Controllo Colonne Quote
         req_cols = ['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo']
         missing = [c for c in req_cols if c not in df.columns]
-        if missing: return None, f"⚠️ Errore Colonne: {missing}"
+        if missing: return None, f"⚠️ Errore Colonne Mancanti: {missing}", debug_logs
 
-        # Pulizia Numeri (inclusi i risultati scor1/scor2)
-        cols_num = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
-        for c in cols_num:
+        # 5. Pulizia Numeri (Forzata e Potente)
+        cols_to_numeric = ['cotaa', 'cotae', 'cotad', 'cotao', 'cotau', 'elohomeo', 'eloawayo', 'scor1', 'scor2']
+        
+        for c in cols_to_numeric:
             if c in df.columns:
-                df[c] = df[c].astype(str).str.replace(',', '.', regex=False)
+                # Toglie spazi, rimpiazza virgole, gestisce errori
+                df[c] = df[c].astype(str).str.strip().str.replace(',', '.', regex=False)
                 df[c] = pd.to_numeric(df[c], errors='coerce')
 
+        # 6. Rimozione righe senza quote essenziali
         df = df.dropna(subset=['cotaa', 'cotae', 'cotad', 'elohomeo', 'eloawayo'])
         
+        # 7. Calcoli EV
         calc = df.apply(lambda r: calculate_row(r), axis=1)
         df = pd.concat([df, calc], axis=1)
         
-        # Gestione Risultati
+        # 8. Gestione Risultati (Logica Potenziata)
         df['res_1x2'] = '-' 
         
-        # Se le colonne scor1/scor2 esistono e hanno numeri
         if 'scor1' in df.columns and 'scor2' in df.columns:
-            mask_played = df['scor1'].notna() & df['scor2'].notna()
+            # Conta quanti risultati validi abbiamo trovato
+            valid_results = df['scor1'].notna() & df['scor2'].notna()
+            debug_logs.append(f"Righe con risultati validi trovate: {valid_results.sum()}")
             
-            df.loc[mask_played & (df['scor1'] > df['scor2']), 'res_1x2'] = '1'
-            df.loc[mask_played & (df['scor1'] == df['scor2']), 'res_1x2'] = 'X'
-            df.loc[mask_played & (df['scor1'] < df['scor2']), 'res_1x2'] = '2'
+            df.loc[valid_results & (df['scor1'] > df['scor2']), 'res_1x2'] = '1'
+            df.loc[valid_results & (df['scor1'] == df['scor2']), 'res_1x2'] = 'X'
+            df.loc[valid_results & (df['scor1'] < df['scor2']), 'res_1x2'] = '2'
             
             df['goals_ft'] = df['scor1'] + df['scor2']
             if 'cotao' in df.columns:
                 df['res_o25'] = np.nan
-                df.loc[mask_played, 'res_o25'] = (df.loc[mask_played, 'goals_ft'] > 2.5).astype(int)
+                df.loc[valid_results, 'res_o25'] = (df.loc[valid_results, 'goals_ft'] > 2.5).astype(int)
             
-        return df, None
+        return df, None, debug_logs
 
     except Exception as e:
-        return None, f"Errore Tecnico: {str(e)}"
+        return None, f"Errore Tecnico: {str(e)}", debug_logs
 
 # --- INTERFACCIA ---
 tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report Storico", "🕵️ Analisi Cluster"])
@@ -119,13 +130,13 @@ tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report Storico", "🕵️ 
 with tab1:
     st.header("Calcolatore Manuale")
     
-    # Input Nomi
+    # Nomi
     c_name1, c_vs, c_name2 = st.columns([3, 1, 3])
     with c_name1: team_h = st.text_input("Squadra Casa", "Home Team")
     with c_vs: st.markdown("<h3 style='text-align: center; margin-top: 20px;'>VS</h3>", unsafe_allow_html=True)
     with c_name2: team_a = st.text_input("Squadra Ospite", "Away Team")
 
-    # Input Dati
+    # Dati Numerici
     c1, c2, c3 = st.columns(3)
     elo_h = c1.number_input("ELO Casa", value=1500, min_value=0, step=10)
     o1 = c1.number_input("Quota 1", value=2.00, min_value=1.01, step=0.01)
@@ -136,7 +147,7 @@ with tab1:
         ox = st.number_input("Quota X", value=3.00, min_value=1.01, step=0.01)
     
     elo_a = c3.number_input("ELO Ospite", value=1500, min_value=0, step=10)
-    o2 = c3.number_input("Quota 2", value=2.50, min_value=1.01, step=0.01)
+    o2 = c3.number_input("Quota 2", value=3.50, min_value=1.01, step=0.01)
     
     if st.button("Calcola Previsione", type="primary", use_container_width=True):
         row = {'elohomeo': elo_h, 'eloawayo': elo_a, 'cotaa': o1, 'cotae': ox, 'cotad': o2}
@@ -151,7 +162,7 @@ with tab1:
         
         k1, k2, k3 = st.columns(3)
         
-        # --- FIX VISIVO: COLORE NERO PER IMPLICITA ---
+        # --- FIX GRAFICO: CONTRASTO ALTO ---
         def show_card(col, label, odd, ev, fair):
             bg_color = "#d4edda" if ev > 0 else "#f8d7da"
             text_color = "#155724" if ev > 0 else "#721c24"
@@ -166,10 +177,14 @@ with tab1:
                     border-left: 5px solid {border_color};
                     text-align: center;
                     margin-bottom: 10px;
+                    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
                 ">
                     <h3 style="margin:0; color: {text_color};">Segno {label}</h3>
-                    <h1 style="margin:0; font-size: 40px; color: black;">{odd:.2f}</h1>
-                    <p style="margin:5px 0; font-weight: bold; color: black; background-color: rgba(255,255,255,0.5); border-radius: 5px;">Imp: {fair:.2f}</p>
+                    <h1 style="margin:0; font-size: 45px; color: black; font-weight: 800;">{odd:.2f}</h1>
+                    <div style="background-color: white; color: black; padding: 5px; border-radius: 5px; margin: 10px 0; border: 1px solid #ccc;">
+                        <span style="font-size: 14px;">Quota Fair (Implicita)</span><br>
+                        <span style="font-size: 20px; font-weight: bold;">{fair:.2f}</span>
+                    </div>
                     <p style="margin:0; font-size: 18px; color: {text_color}; font-weight: bold;">EV: {ev:+.1%}</p>
                 </div>
                 """, unsafe_allow_html=True)
@@ -181,8 +196,15 @@ with tab1:
 uploaded_file = st.sidebar.file_uploader("📂 Carica CSV", type=["csv"])
 
 if uploaded_file:
-    df, error_msg = load_data(uploaded_file)
+    df, error_msg, logs = load_data(uploaded_file)
     
+    # DEBUGGER (Visibile solo se serve)
+    with st.sidebar.expander("🛠️ Controllo Dati (Debug)"):
+        for log in logs:
+            st.text(log)
+        if df is not None:
+            st.write("Prime righe raw:", df[['cotaa', 'scor1', 'scor2']].head())
+
     if error_msg:
         st.error(error_msg)
     else:
@@ -195,7 +217,6 @@ if uploaded_file:
             if n_played > 0:
                 st.success(f"Analisi su **{n_played}** partite giocate.")
                 
-                # Calcolo PnL
                 pnl_1 = np.where(df_played['EV_1']>0, np.where(df_played['res_1x2']=='1', df_played['cotaa']-1, -1), 0).sum()
                 pnl_2 = np.where(df_played['EV_2']>0, np.where(df_played['res_1x2']=='2', df_played['cotad']-1, -1), 0).sum()
                 
@@ -204,12 +225,13 @@ if uploaded_file:
                 m2.metric("Profitto Strategia OSPITE (2)", f"{pnl_2:.2f} u")
                 
                 st.write("### Dettaglio Ultime Partite")
-                # Mostra solo colonne esistenti
+                # Colonne da mostrare
                 cols_view = ['datamecic', 'txtechipa1', 'txtechipa2', 'res_1x2', 'cotaa', 'cotad', 'EV_1', 'EV_2']
                 cols_final = [c for c in cols_view if c in df_played.columns]
                 st.dataframe(df_played[cols_final].head(20).style.format("{:.2f}", subset=['cotaa', 'cotad']))
             else:
-                st.info("ℹ️ Nessun risultato trovato (le colonne GF/Scor sono vuote o mancano).")
+                st.warning("⚠️ Il file è stato letto, ma il sistema non trova i risultati.")
+                st.info("Controlla nel menu laterale 'Controllo Dati': se vedi NaN sotto 'scor1', significa che il file ha un formato numeri strano.")
                 st.write("Ecco le quote caricate:")
                 st.dataframe(df.head())
 
