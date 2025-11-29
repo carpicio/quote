@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="Value Bet Final v27", page_icon="⚽", layout="wide")
-st.title("⚽ Calcolatore Strategico (v27 - Corretto)")
+st.set_page_config(page_title="Value Bet v28", page_icon="⚽", layout="wide")
+st.title("⚽ Calcolatore Strategico (v28 - Con Nomi)")
 
 # --- FUNZIONI DI CALCOLO ---
 def get_implicit_probs(elo_home, elo_away, hfa=100):
@@ -65,6 +65,7 @@ def load_data(file):
 
         df.columns = df.columns.str.strip().str.lower()
         
+        # Mappa Nomi Universale
         rename_map = {
             '1': 'cotaa', 'x': 'cotae', '2': 'cotad',
             'eloc': 'elohomeo', 'eloo': 'eloawayo',
@@ -93,7 +94,6 @@ def load_data(file):
             df['goals_ft'] = df['scor1'] + df['scor2']
             conditions = [df['scor1'] > df['scor2'], df['scor1'] == df['scor2'], df['scor1'] < df['scor2']]
             df['res_1x2'] = np.select(conditions, ['1', 'X', '2'], default='-')
-            
             if 'cotao' in df.columns:
                 df['res_o25'] = (df['goals_ft'] > 2.5).astype(int)
                 df['res_u25'] = (df['goals_ft'] < 2.5).astype(int)
@@ -110,32 +110,53 @@ tab1, tab2, tab3 = st.tabs(["🔮 Calcolatore", "📊 Report", "🕵️ Analisi"
 
 with tab1:
     st.header("Calcolatore Manuale")
+    
+    # --- RIGA 1: NOMI SQUADRE ---
+    c_name1, c_vs, c_name2 = st.columns([3, 1, 3])
+    with c_name1:
+        team_h = st.text_input("Squadra Casa", "Home Team")
+    with c_vs:
+        st.markdown("<h3 style='text-align: center; margin-top: 20px;'>VS</h3>", unsafe_allow_html=True)
+    with c_name2:
+        team_a = st.text_input("Squadra Ospite", "Away Team")
+
+    # --- RIGA 2: DATI ---
     c1, c2, c3 = st.columns(3)
     
-    # --- CORREZIONE DEFINITIVA INPUT ---
-    # Impostiamo min_value=0 o 1.01 per sbloccare i campi
-    elo_h = c1.number_input("ELO Casa", value=1500, min_value=0, step=10)
-    elo_a = c3.number_input("ELO Ospite", value=1500, min_value=0, step=10)
+    # Casa
+    with c1:
+        elo_h = st.number_input("ELO Casa", value=1424, min_value=0, step=10)
+        o1 = st.number_input("Quota 1", value=2.50, min_value=1.01, step=0.01)
     
-    o1 = c1.number_input("Quota 1", value=2.00, min_value=1.01, step=0.01)
-    ox = c2.number_input("Quota X", value=3.00, min_value=1.01, step=0.01)
+    # X (Pareggio)
+    with c2:
+        st.write("") # Spaziatore
+        st.write("") 
+        ox = st.number_input("Quota X", value=3.20, min_value=1.01, step=0.01)
     
-    # Quota 2 sbloccata: default 2.50, minimo 1.01
-    o2 = c3.number_input("Quota 2", value=2.50, min_value=1.01, step=0.01)
+    # Ospite
+    with c3:
+        elo_a = st.number_input("ELO Ospite", value=1543, min_value=0, step=10)
+        o2 = st.number_input("Quota 2", value=2.80, min_value=1.01, step=0.01)
     
-    if st.button("Calcola"):
+    if st.button("Calcola Previsione", type="primary"):
         row = {'elohomeo': elo_h, 'eloawayo': elo_a, 'cotaa': o1, 'cotae': ox, 'cotad': o2}
         res = calculate_row(row)
-        st.write(f"**Differenza ELO:** {int(res['ELO_Diff'])}")
+        
+        st.divider()
+        st.subheader(f"Risultati: {team_h} vs {team_a}")
+        st.write(f"**Differenza ELO (con fattore campo):** {int(res['ELO_Diff'])}")
+        
         k1, k2, k3 = st.columns(3)
         def show(col, lbl, odd, ev):
             color = "inverse" if ev > 0 else "normal"
             col.metric(lbl, f"{odd}", f"EV: {ev:.1%}", delta_color=color)
+            
         show(k1, "1", o1, res['EV_1'])
         show(k2, "X", ox, res['EV_X'])
         show(k3, "2", o2, res['EV_2'])
 
-uploaded_file = st.sidebar.file_uploader("📂 Carica CSV", type=["csv"], key="upl_v27")
+uploaded_file = st.sidebar.file_uploader("📂 Carica CSV", type=["csv"])
 
 if uploaded_file:
     df, error_msg = load_data(uploaded_file)
@@ -146,7 +167,6 @@ if uploaded_file:
         with tab2:
             st.header("Report Generale")
             df_valid = df[df['res_1x2'] != '-'].copy()
-            
             if not df_valid.empty:
                 pnl_1 = np.where(df_valid['EV_1']>0, np.where(df_valid['res_1x2']=='1', df_valid['cotaa']-1, -1), 0).sum()
                 pnl_2 = np.where(df_valid['EV_2']>0, np.where(df_valid['res_1x2']=='2', df_valid['cotad']-1, -1), 0).sum()
@@ -154,7 +174,7 @@ if uploaded_file:
                 m1.metric("Totale Strategia CASA", f"{pnl_1:.2f} u")
                 m2.metric("Totale Strategia OSPITE", f"{pnl_2:.2f} u")
             else:
-                st.info("ℹ️ Nessun risultato storico trovato (partite future).")
+                st.info("ℹ️ Nessun risultato storico trovato.")
             
             cols_hide = ['res_1x2', 'res_o25', 'res_u25', 'goals_ft', 'EV_1', 'EV_X', 'EV_2']
             cols_show = [c for c in df.columns if c not in cols_hide] + ['EV_1', 'EV_2']
