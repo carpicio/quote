@@ -47,8 +47,9 @@ def calculate_row(row, hfa=100):
     
     return pd.Series({**res_1x2, 'ELO_Diff': elo_diff})
 
-# --- CARICAMENTO DATI ---
-@st.cache_data
+# --- CARICAMENTO DATI (FIX COMPATIBILITÀ) ---
+# Usiamo st.cache invece di st.cache_data per evitare errori con server vecchi
+@st.cache(suppress_st_warning=True)
 def load_data(file):
     df = pd.read_csv(file, sep=';', encoding='latin1')
     # Pulizia colonne numeriche
